@@ -16,6 +16,17 @@ else
 	r = require("robot")
 end
 
+if not component.list("inventory_controller")() then
+	print("Inventory upgrade is missing. It's still possible to use it without but one function needs to be changed")
+	os.exit()
+else
+	inv = component.inventory_controller
+end
+
+function myerrorhandler( err )
+	print("Error:", err)
+end
+
 ----------- Vector Library ---------------
 
 --[[
@@ -86,6 +97,13 @@ curLocation = getLocation()
 facing = mapToRobot[navi.getFacing()]
 -- update this when approaching a destination. It's purpose is to be saved in a config file to resume your job.
 curTarget = curLocation
+-- colors
+colors = {}
+colors.GoingToChest = 0x90662A
+colors.Digging = 0x535ABE
+colors.walking = 0x8A86BE
+colors.GoingToRecharge = 0x17BE91
+colors.obsticle = 0xBE175D
 -- calibrate your power per move with this code --
 --[[
 ---	startin = computer.energy()
@@ -116,21 +134,156 @@ dryMove = {
 	function(i) return new(0,-i,0) end  -- -y
 }
 
+------------ Inventory Functions ------------
+
+-- item = size,maxSize,name,label
+--[[
+invLib = {}
+invLib.pseudoNames = {
+	["minecraft:diamond_ore"] = "minecraft:diamond"
+}
+
+function canBeStacked(currentName,TargetItem)
+	-- compare if it fits
+	if currentName == TargetItem.name then
+		if TargetItem.maxSize-TargetItem.size > 0 then
+			return true
+		end
+	end
+	return false
+end
+
+function scanForPlace(currentBlock)
+	-- check if a pseudoname exists
+	if invLib.pseudoNames[currentBlock.name] then
+		currentName = invLib.pseudoNames[currentBlock.name]
+	else
+		currentName = currentBlock.name
+	end
+	for i=1,16 do
+		
+		-- second option if the place isn't empty
+		canBeStacked(currentName)
+	end
+end
+]] -- fuck I need a geolizer
+
+invLib = {}
+invLib.inventorySize = r.inventorySize()
+invLib.keepingList = { "minecraft:torch" }
+-- functions that checks if there is still space
+function invLib.space()
+	for i=1,invLib.inventorySize do
+		if r.count(i) < 1 then
+			return true -- there is space
+		end
+	end
+	return false
+end
+
+-- function that compares if the block fits in the inventory
+function invLib.canBeStacked(dir)
+	-- for every slot
+	for i=1,invLib.inventorySize do
+		-- check if the block forward, up or down is the same with the current slot
+		r.select(i)
+		if r["compare"..dir]() then
+			-- if the slot isn't full then return true
+			if r.count() < 64 then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+-- function that checks if it's possible to store that block
+function invLib.doesItFit(dir)
+	if invLib.space() then return true end
+	if invLib.canBeStacked(dir) then return true end
+	return false
+end
+
+-- pre define the function. It is in the bottom of the script
+invLib.goEmptyYourself = function() end
+
+function invLib.drop(dir)
+	state, reason = r["drop"..dir]()
+	-- it will repeat except if the state is false AND there is no reason
+	while state or reason do
+		-- if there is a reason print it
+		if reason then print("Can't drop because "..reason) end
+		-- try to drop it again
+		state, reason = r["drop"..dir]()
+	end
+end
+
+-- checks if the slot contains an unallowed item
+function invLib.checkKeepList(slot)
+	for z,name in pairs(invLib.keepingList) do
+		currentItem = inv.getStackInInternalSlot(slot)
+		if currentItem then
+			if currentItem["name"] == name then
+				return false
+			end
+		end
+	end
+	return true
+end
+
+-- drops the whole inventory and checks for items that should be kept
+function invLib.emptyInventory()
+	-- for every slot
+	for i=1,invLib.inventorySize do
+		-- for every keep-item, compare it with the current slected one and proceed if it's not in the list
+		if invLib.checkKeepList(i) then
+			-- drop the item slot
+			r.select(i)
+			invLib.drop("") -- drop forward
+		end
+	end
+end
+
+------------- Digging Functions -------------
+dig = {}
+function dig.dig(dir)
+	-- if the block fits into the inventory then dig that block
+	if invLib.doesItFit(dir) then
+		return r["swing"..dir]()
+	end
+	-- else empty itself to the chest and come back
+	status = xpcall( invLib.goEmptyYourself, myerrorhandler )
+	print(status)
+	-- dig that block
+	return r["swing"..dir]()
+end
+function dig.swing() return dig.dig("") end
+function dig.swingUp() return dig.dig("Up") end
+function dig.swingDown() return dig.dig("Down") end
+
 ----------- Move Functions -----------
 move = {}
 
 function move.move(dir,num,specialTask,specialTask2)
+	-- change the forward string to a blank string
+	if dir == "forward" then sdir = "" else sdir = dir end
 	-- walking loop
 	for i = 1, num do
+		-- execute a custom function before moving a block
 		if specialTask then specialTask() end
+		-- save the current light color
+		local originalColor = r.getLightColor()
 		-- check if it's possible to move up,down,forward
-		local isItForward = dir == "forward"
-		if isItForward then sdir = "" else sdir = dir end
 		while not r[dir]() do
+			-- change color
+			r.setLightColor(colors.obsticle)
 			-- if it can't move then try to break that block in that direction
 			local state, reason = r["swing"..sdir:gsub("^%l",string.upper)]() -- make the direction also uppercase | https://stackoverflow.com/questions/2421695/first-character-uppercase-lua
 			if not state then print(reason) end
 		end
+		-- reapply the last color
+		r.setLightColor(originalColor)
+		-- execute a custom function at the end of moving a block
 		if specialTask2 then specialTask2() end
 	end
 end
@@ -139,7 +292,7 @@ end
 function move.forward(num) num = num or 1 move.move("forward",num) curLocation = curLocation + dryMove[facing](num) end
 function move.up(num) num = num or 1 move.move("up",num) curLocation = curLocation + dryMove[5](num) end
 function move.down(num) num = num or 1 move.move("down",num) curLocation = curLocation + dryMove[6](num) end
--- turn functions
+-- turn and save the new facing direction
 function move.turnLeft() r.turnLeft() facing = dryTurn.left(facing) end
 function move.turnRight() r.turnRight() facing = dryTurn.right(facing) end
 function move.turn() r.turnLeft() r.turnLeft() facing = dryTurn.turn(facing) end
@@ -152,12 +305,13 @@ move[2] = move.turn2 -- turn 180 but into the right direction | just for the swa
 move[3] = move[-1] -- turnLeft
 move[-3] = move[1] -- turnRight
 move[0] = function() return end -- do nothing
-
+-- turn to the new given direction
 function move.turnTo(target) move[target - facing]() end
 
--- special movement with digging -- 
-function move.specialDigging() r.swingUp() r.swing() end
-function move.humanTunnel(num) num = num or 1 print("walking "..num) move.move("forward",num,move.specialDigging) curLocation = curLocation + dryMove[facing](num) end
+-- special movement with digging --
+function move.specialDigging() dig.swingUp() dig.swing() end
+function move.specialDigging2() dig.swingUp() end
+function move.humanTunnel(num) num = num or 1 move.move("forward",num,move.specialDigging,move.specialDigging2) curLocation = curLocation + dryMove[facing](num) end
 
 ---------- Going to Position Functions ------------
 
@@ -172,7 +326,7 @@ pos.selectedDown = move.down
 function pos.goToX(num)
 	if num < 0 then -- if negative
 		move.turnTo(1)
-		pos.selectedForward(num*-1) -- the dryMove already uses negative so make it positive
+		pos.selectedForward(num*-1) -- the dryMove already uses negative so make it positive to prevent having a wrong number at the end
 	elseif num > 0 then -- if positive
 		move.turnTo(3)
 		pos.selectedForward(num)
@@ -228,23 +382,23 @@ end
 
 -------------- Mapping ---------------
 --[[
-start Position / Home = 
+= start Position / Home =
 0: Pos, Chest Pos, Energy Pos
-the rest positions = 
+= the rest positions =
 1: Pos, Left Position, Right Position
 2:
 3:
 ...
 ]]--
 mappedArea = {}
-
+ 
 -- distance between strip mines
 mappedArea.stripDistance = 3
 -- distance into the left and right strip
-mappedArea.stripDistLeft = 5
-mappedArea.stripDistRight = 5
+mappedArea.stripDistLeft = 10
+mappedArea.stripDistRight = 10
 -- how many strips to go
-mappedArea.strips = 2
+mappedArea.strips = 100
 -- location of the chest
 mappedArea.depositChest = curLocation + dryMove[ dryTurn.left(facing) ](2) -- default it to the left of the start position
 mappedArea.depositChestFacing = dryTurn.left(facing)
@@ -253,7 +407,6 @@ mappedArea.energy = curLocation + dryMove[ dryTurn.left(facing) ](2) + dryMove[ 
 -- other options
 mappedArea.startFacing = facing
 mappedArea.startLeft = true
-mappedArea.startStrippingAt = 1
 -- movement Functions for swapping
 mappedArea.SpecialForward = move.humanTunnel
 mappedArea.SpecialdUp = move.up
@@ -261,11 +414,76 @@ mappedArea.SpecialDown = move.down
 mappedArea.DefaultForward = move.forward
 mappedArea.DefaultdUp = move.up
 mappedArea.DefaultDown = move.down
-
-
-
+-- cache
+mappedArea.startStrippingAt = 1
+mappedArea.currentStage = 0
+mappedArea.lastPosition = curLocation
+mappedArea.lastFacing = facing
+mappedArea.swappedFunctions = false
 mappedArea.map = {}
 
+function mappedArea.goToMainPath(facing)
+	-- go to the current layer main-pos to go the main path/hall: mappedArea.startStrippingAt variable gets updated every strip so use it to first go the main path
+	pos.goTo(facing, mappedArea.map[ mappedArea.currentStage ].Pos)
+end
+
+function mappedArea.cachePosition()
+	mappedArea.lastPosition = curLocation
+	mappedArea.lastFacing = facing
+end
+
+function mappedArea.goToCachedPosition()
+	pos.goTo(facing, mappedArea.lastPosition)
+	move.turnTo( mappedArea.lastFacing )
+end
+
+function mappedArea.goToChest()
+	-- change color
+	r.setLightColor(colors.GoingToChest)
+	-- go to the main path
+	print("going the main path") mappedArea.goToMainPath(facing)
+	-- then go to the start Position
+	print("going to the start pos") pos.goTo(facing, mappedArea.map[0].Pos)
+	-- set the current stage
+	mappedArea.currentStage = 0
+	-- then go to the chest
+	print("going to the chest") pos.goTo(facing, mappedArea.map[0].Chest)
+	-- turn to the chest
+	move.turnTo( mappedArea.depositChestFacing )
+end
+
+function mappedArea.returnToJob()
+	-- change color
+	r.setLightColor(colors.Digging)
+	-- go the main path
+	mappedArea.goToMainPath(facing)
+	-- go to the last layer main-pos
+	pos.goTo(facing, mappedArea.map[ mappedArea.startStrippingAt ].Pos)
+	-- set the current stage
+	mappedArea.currentStage = mappedArea.startStrippingAt
+	-- go to the last-position and face to last-facing
+	mappedArea.goToCachedPosition()
+end
+
+-- function that tries to go back at home to empty itself
+invLib.goEmptyYourself = function(DoNotreturnToJob)
+	-- while on the job, save the last position and facing from the job
+	mappedArea.cachePosition()
+	-- save last swapFunction state
+	local lastSwapState = mappedArea.swappedFunctions
+	-- disable special functions
+	swapFunctions(false)
+	-- go to the chest and face to it
+	mappedArea.goToChest()
+	-- empty the inventory
+	invLib.emptyInventory()
+	-- go back to the job
+	if not DoNotreturnToJob then mappedArea.returnToJob() end
+	-- change functions to the last state
+	swapFunctions(lastSwapState)
+end
+
+-- returns the vector Pos
 function mappedArea.getChest()
 	-- if it's a string return the waypoint with that name
 	if type(mappedArea.chest) == "string" then
@@ -296,10 +514,10 @@ function mappedArea.generateMapStrip()
 	-- generate the map
 	local tempPosition = startPosition
 	for i = 1,mappedArea.strips do
-		-- init pos
+		-- init table
 		mappedArea.map[i] = {}
-		-- precalculate and save
-		tempPosition = tempPosition + dryMove[ mappedArea.startFacing ]( mappedArea.stripDistance )	
+		-- precalculate the strip positions and save them to the table
+		tempPosition = tempPosition + dryMove[ mappedArea.startFacing ]( mappedArea.stripDistance )
 		mappedArea.map[i].Pos = tempPosition
 		-- with the startFacing, dryturn left and calculate the position with the distance to the left
 		mappedArea.map[i].LeftPos = tempPosition + dryMove[ dryTurn.left( mappedArea.startFacing ) ]( mappedArea.stripDistLeft )
@@ -310,13 +528,23 @@ end
 
 function swapFunctions(SpecialActivated)
 	if SpecialActivated then
+		-- change color
+		r.setLightColor(colors.Digging)
+		-- change functions
 		pos.selectedForward = mappedArea.SpecialForward
 		pos.selectedUp = mappedArea.SpecialdUp
 		pos.selectedDown = mappedArea.SpecialDown
+		-- change state
+		mappedArea.swappedFunctions = true
 	else
-		pos.selectedForward = mappedArea.DefaultForward 
+		-- change color
+		r.setLightColor(colors.walking)
+		-- change functions
+		pos.selectedForward = mappedArea.DefaultForward
 		pos.selectedUp = mappedArea.DefaultdUp
 		pos.selectedDown = mappedArea.DefaultDown
+		-- change state
+		mappedArea.swappedFunctions = false
 	end
 end
 
@@ -326,7 +554,10 @@ function mappedArea.executeJobStrip()
 		swapFunctions(true)
 		-- go the main path strip by strip
 		pos.goTo(facing,mappedArea.map[i].Pos)
-		
+		-- set the current stage
+		mappedArea.startStrippingAt = i -- nice if you want to resume the job or smth
+		mappedArea.currentStage = i
+		-- check if it should start left or right
 		if mappedArea.startLeft then
 			-- go left
 			pos.goTo(facing,mappedArea.map[i].LeftPos)
@@ -339,10 +570,10 @@ function mappedArea.executeJobStrip()
 			pos.goTo(facing,mappedArea.map[i].LeftPos)
 		end
 		-- go back to the main line
-		swapFunctions(true)
+		swapFunctions(false)
 		pos.goTo(facing,mappedArea.map[i].Pos)
 		-- save the current strip number
-		mappedArea.startStrippingAt = i -- nice if you want to resume the job or smth
+		--mappedArea.startStrippingAt = i -- nice if you want to resume the job or smth
 	end
 end
 
@@ -357,6 +588,9 @@ end
 
 mappedArea.generateMapStrip()
 mappedArea.executeJobStrip()
+invLib.goEmptyYourself(true)
+pos.goTo( facing, mappedArea.map[0].Pos )
+
 --print(curLocation)
 --print(dryMove[2](-5))
 --print(facing)
