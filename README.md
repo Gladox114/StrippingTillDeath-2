@@ -1,6 +1,8 @@
 # StrippingTillDeath-2
 StrippingTillDeath 2 is written out of scratch for OpenComputers but uses a similiar logic like in StrippingTillDeath
 
+contains a bug where going to the chest doesn't work quite right
+
 (new) It can now go to the Chest position and saved facing direction when the Inventory is full
 
 
