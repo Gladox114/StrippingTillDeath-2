@@ -290,49 +290,6 @@ function move.specialDigging() dig.swingUp() dig.swing() end
 function move.specialDigging2() dig.swingUp() end
 function move.humanTunnel(num) num = num or 1 move.move("forward",num,move.specialDigging,move.specialDigging2) curLocation = curLocation + dryMove[facing](num) end
 
--------- Pre calculate energy consumption ---------
-
-local energy = {}
--- add all vector positions with x and z together
--- add all y together
--- multiply powerConfig.forward with the sum of all vectors of x and z
--- multply powerConfig.up with the sum of all vectors of y
--- add them all together and compare them to the current energy state if it's possible to go home or to the destination
-
-function energy.sumOfAllVectors(vecList)
-	local vecSum = new()
-	-- add all vectors together
-	for _,vec in pairs(vecList) do vecSum = vecSum + vec:abs() end
-	vecSum = vecSum:array()
-	-- calculate the power Consumption for horizontal moves
-	local energyConsumption = (vecSum[1]+vecSum[3]) * powerConfig.forward
-	-- calculate and add the power Consumption for vertical moves
-	energyConsumption = energyConsumption + vecSum[2] * powerConfig.up
-
-	return energyConsumption
-end
-
-function energy.hitsMinimum(energyToGoHome)
-	if energyToGoHome > powerConfig.minimum then
-		return false
-	end
-	return true
-end
-
-function energy.calcReturnToJob()
-	
-end
-
-function energy.calcToHome()
-	local vecList = {}
-	-- going to the main path
-	vecList[1] = mappedArea.currentStage - curLocation
-	-- going to the startPosition
-	vecList[2] = mappedArea.map[0].Pos - curLocation
-	-- return if it's needed to recharge
-	return energy.hitsMinimum( energy.sumOfAllVectors(vecList) )
-end
-
 ---------- Going to Position Functions ------------
 
 local pos = {}
