@@ -1,13 +1,16 @@
 --------- initialise requirements --------
-component = require("component")
-
+local component = require("component")
+local navi = nil
+local r = nil
+local inv = nil
+--[[
 -- check if the setting is right --
 if not component.list("navigation")() then
 	print("Please insert a Navigation upgrade")
 	os.exit()
 else
 	navi = component.navigation
-end
+end]]
 
 if not component.list("robot")() then
 	print("Can only be used on Robots")
@@ -43,16 +46,20 @@ end
     copies or substantial portions of the Software.
 ]]--
 
-vector = {}
+local vector = {}
 vector.__index = vector
-
-function new(x,y,z) return setmetatable({x=x or 0, y=y or 0, z=z or 0},vector) end
-function isVector(t) return getmetatable(t) == vector end
+local function abs(a)
+	if a < 0 then return -a end
+	return a
+end
+local function new(x,y,z) return setmetatable({x=x or 0, y=y or 0, z=z or 0},vector) end
+local function isVector(t) return getmetatable(t) == vector end
 function vector:set(x,y,z)
-	if isvector(x) then self.x, self.y, self.z = x, y ,z return end
+	if isVector(x) then self.x, self.y, self.z = x, y ,z return end
 	self.x, self.y, self.z = x or self.x, y or self.y, z or self.z
 	return self
 end
+function vector:abs() return {abs(self.x),abs(self.y),abs(self.z)} end
 -- meta function to add vectors together
 function vector.__add(a,b) return new(a.x+b.x, a.y+b.y, a.z+b.z) end
 -- meta function to subtract vectors
@@ -68,15 +75,16 @@ function vector:unpack() return self.x, self.y, self.z end
 function vector:__tostring() return "("..self.x..", "..self.y..", "..self.z..")" end
   
 
--- returns a vector of the current Position 
-function getLocation()
-	x,y,z = navi.getPosition()
-	return new(x,y,z)
+-- returns a vector of the current Position
+local function getLocation()
+	--x,y,z = navi.getPosition()
+	--return new(x,y,z)
+	return new()
 end
 
 ---------------- config -----------------
 
---[[ 
+--[[
 Robot			 Map
 -x = 1			-x = 4
 -z = 2			-z = 2
@@ -86,19 +94,20 @@ up = 5
 down = 6
 ]]
 
-mapToRobot = {}
+local mapToRobot = {}
 mapToRobot[4] = 1
 mapToRobot[2] = 2
 mapToRobot[5] = 3
 mapToRobot[3] = 4
 
 -- create and save the current location and facing
-curLocation = getLocation()
-facing = mapToRobot[navi.getFacing()]
+local curLocation = getLocation()
+--local facing = mapToRobot[navi.getFacing()]
+local facing = 1
 -- update this when approaching a destination. It's purpose is to be saved in a config file to resume your job.
-curTarget = curLocation
+local curTarget = curLocation
 -- colors
-colors = {}
+local colors = {}
 colors.GoingToChest = 0x90662A
 colors.Digging = 0x535ABE
 colors.walking = 0x8A86BE
@@ -111,20 +120,21 @@ colors.obsticle = 0xBE175D
 ---	endin = computer.energy()
 ---	print(startin-endin)
 ]]--
-powerConfig = {}
+local powerConfig = {}
 powerConfig.forward = 17.5
 powerConfig.up = 15.0
 powerConfig.down = 15.0
-
+powerConfig.dig = 0.35687499888081 -- unnecessary
+powerConfig.minimum = 200.0
 ---------- pre calculating facing directions and movement -----------
-dryTurn = {}
+local dryTurn = {}
 -- with modulo % we can get the exact direction but we need to first subtract 1 and add 1 at the end to match the mapping
 function dryTurn.main(facing,num) return ((facing + num - 1) % 4) + 1 end
 function dryTurn.left(facing) return dryTurn.main(facing,-1) end
 function dryTurn.right(facing) return dryTurn.main(facing,1) end
 function dryTurn.turn(facing) return dryTurn.main(facing,2) end
 
-dryMove = {
+local dryMove = {
 --						    x,y,z
 	function(i) return new(-i,0,0) end, -- -x
 	function(i) return new(0,0,-i) end, -- -z
@@ -136,39 +146,7 @@ dryMove = {
 
 ------------ Inventory Functions ------------
 
--- item = size,maxSize,name,label
---[[
-invLib = {}
-invLib.pseudoNames = {
-	["minecraft:diamond_ore"] = "minecraft:diamond"
-}
-
-function canBeStacked(currentName,TargetItem)
-	-- compare if it fits
-	if currentName == TargetItem.name then
-		if TargetItem.maxSize-TargetItem.size > 0 then
-			return true
-		end
-	end
-	return false
-end
-
-function scanForPlace(currentBlock)
-	-- check if a pseudoname exists
-	if invLib.pseudoNames[currentBlock.name] then
-		currentName = invLib.pseudoNames[currentBlock.name]
-	else
-		currentName = currentBlock.name
-	end
-	for i=1,16 do
-		
-		-- second option if the place isn't empty
-		canBeStacked(currentName)
-	end
-end
-]] -- fuck I need a geolizer
-
-invLib = {}
+local invLib = {}
 invLib.inventorySize = r.inventorySize()
 invLib.keepingList = { "minecraft:torch" }
 -- functions that checks if there is still space
@@ -208,7 +186,7 @@ end
 invLib.goEmptyYourself = function() end
 
 function invLib.drop(dir)
-	state, reason = r["drop"..dir]()
+	local state, reason = r["drop"..dir]()
 	-- it will repeat except if the state is false AND there is no reason
 	while state or reason do
 		-- if there is a reason print it
@@ -221,7 +199,7 @@ end
 -- checks if the slot contains an unallowed item
 function invLib.checkKeepList(slot)
 	for z,name in pairs(invLib.keepingList) do
-		currentItem = inv.getStackInInternalSlot(slot)
+		local currentItem = inv.getStackInInternalSlot(slot)
 		if currentItem then
 			if currentItem["name"] == name then
 				return false
@@ -245,15 +223,14 @@ function invLib.emptyInventory()
 end
 
 ------------- Digging Functions -------------
-dig = {}
+local dig = {}
 function dig.dig(dir)
 	-- if the block fits into the inventory then dig that block
 	if invLib.doesItFit(dir) then
 		return r["swing"..dir]()
 	end
 	-- else empty itself to the chest and come back
-	status = xpcall( invLib.goEmptyYourself, myerrorhandler )
-	print(status)
+	invLib.goEmptyYourself()
 	-- dig that block
 	return r["swing"..dir]()
 end
@@ -262,7 +239,7 @@ function dig.swingUp() return dig.dig("Up") end
 function dig.swingDown() return dig.dig("Down") end
 
 ----------- Move Functions -----------
-move = {}
+local move = {}
 
 function move.move(dir,num,specialTask,specialTask2)
 	-- change the forward string to a blank string
@@ -313,9 +290,52 @@ function move.specialDigging() dig.swingUp() dig.swing() end
 function move.specialDigging2() dig.swingUp() end
 function move.humanTunnel(num) num = num or 1 move.move("forward",num,move.specialDigging,move.specialDigging2) curLocation = curLocation + dryMove[facing](num) end
 
+-------- Pre calculate energy consumption ---------
+
+local energy = {}
+-- add all vector positions with x and z together
+-- add all y together
+-- multiply powerConfig.forward with the sum of all vectors of x and z
+-- multply powerConfig.up with the sum of all vectors of y
+-- add them all together and compare them to the current energy state if it's possible to go home or to the destination
+
+function energy.sumOfAllVectors(vecList)
+	local vecSum = new()
+	-- add all vectors together
+	for _,vec in pairs(vecList) do vecSum = vecSum + vec:abs() end
+	vecSum = vecSum:array()
+	-- calculate the power Consumption for horizontal moves
+	local energyConsumption = (vecSum[1]+vecSum[3]) * powerConfig.forward
+	-- calculate and add the power Consumption for vertical moves
+	energyConsumption = energyConsumption + vecSum[2] * powerConfig.up
+
+	return energyConsumption
+end
+
+function energy.hitsMinimum(energyToGoHome)
+	if energyToGoHome > powerConfig.minimum then
+		return false
+	end
+	return true
+end
+
+function energy.calcReturnToJob()
+	
+end
+
+function energy.calcToHome()
+	local vecList = {}
+	-- going to the main path
+	vecList[1] = mappedArea.currentStage - curLocation
+	-- going to the startPosition
+	vecList[2] = mappedArea.map[0].Pos - curLocation
+	-- return if it's needed to recharge
+	return energy.hitsMinimum( energy.sumOfAllVectors(vecList) )
+end
+
 ---------- Going to Position Functions ------------
 
-pos = {}
+local pos = {}
 pos.verticalFirst = false
 pos.selectedForward = move.humanTunnel
 pos.selectedUp = move.up
@@ -355,15 +375,11 @@ end
 function pos.goTo(facingDir,vectorPos)
 	curTarget = vectorPos --used for resuming
 	local deltaDir = (vectorPos-curLocation):array()
-	--print("curLocation: ",curLocation)
-	--print("facing:",facing)
-	--print("vectorPos: ",vectorPos)
+	-- cool to look at
 	print(deltaDir[1],deltaDir[2],deltaDir[3])
+	-- if it's an odd number then it's facing X
 	local axis = facingDir%2
-	-- check if the facingDir is the same axis
-	--if not facing%2 == axis then -- is not facing on the same axis
-		-- rotate the robot to that direction
-	--end
+	-- check if it needs to go vertical first
 	if pos.verticalFirst then -- Y
 		pos.goToY(deltaDir[2])
 	end
@@ -390,7 +406,7 @@ end
 3:
 ...
 ]]--
-mappedArea = {}
+local mappedArea = {}
  
 -- distance between strip mines
 mappedArea.stripDistance = 3
@@ -414,12 +430,15 @@ mappedArea.SpecialDown = move.down
 mappedArea.DefaultForward = move.forward
 mappedArea.DefaultdUp = move.up
 mappedArea.DefaultDown = move.down
--- cache
+-- cache and resume
 mappedArea.startStrippingAt = 1
 mappedArea.currentStage = 0
 mappedArea.lastPosition = curLocation
 mappedArea.lastFacing = facing
+-- cache
 mappedArea.swappedFunctions = false
+
+
 mappedArea.map = {}
 
 function mappedArea.goToMainPath(facing)
@@ -441,13 +460,13 @@ function mappedArea.goToChest()
 	-- change color
 	r.setLightColor(colors.GoingToChest)
 	-- go to the main path
-	print("going the main path") mappedArea.goToMainPath(facing)
+	mappedArea.goToMainPath(facing)
 	-- then go to the start Position
-	print("going to the start pos") pos.goTo(facing, mappedArea.map[0].Pos)
+	pos.goTo(facing, mappedArea.map[0].Pos)
 	-- set the current stage
 	mappedArea.currentStage = 0
 	-- then go to the chest
-	print("going to the chest") pos.goTo(facing, mappedArea.map[0].Chest)
+	pos.goTo(facing, mappedArea.map[0].Chest)
 	-- turn to the chest
 	move.turnTo( mappedArea.depositChestFacing )
 end
@@ -465,6 +484,28 @@ function mappedArea.returnToJob()
 	mappedArea.goToCachedPosition()
 end
 
+function mappedArea.swapFunctions(SpecialActivated)
+	if SpecialActivated then
+		-- change color
+		r.setLightColor(colors.Digging)
+		-- change functions
+		pos.selectedForward = mappedArea.SpecialForward
+		pos.selectedUp = mappedArea.SpecialdUp
+		pos.selectedDown = mappedArea.SpecialDown
+		-- change state
+		mappedArea.swappedFunctions = true
+	else
+		-- change color
+		r.setLightColor(colors.walking)
+		-- change functions
+		pos.selectedForward = mappedArea.DefaultForward
+		pos.selectedUp = mappedArea.DefaultdUp
+		pos.selectedDown = mappedArea.DefaultDown
+		-- change state
+		mappedArea.swappedFunctions = false
+	end
+end
+
 -- function that tries to go back at home to empty itself
 invLib.goEmptyYourself = function(DoNotreturnToJob)
 	-- while on the job, save the last position and facing from the job
@@ -472,7 +513,7 @@ invLib.goEmptyYourself = function(DoNotreturnToJob)
 	-- save last swapFunction state
 	local lastSwapState = mappedArea.swappedFunctions
 	-- disable special functions
-	swapFunctions(false)
+	mappedArea.swapFunctions(false)
 	-- go to the chest and face to it
 	mappedArea.goToChest()
 	-- empty the inventory
@@ -480,7 +521,7 @@ invLib.goEmptyYourself = function(DoNotreturnToJob)
 	-- go back to the job
 	if not DoNotreturnToJob then mappedArea.returnToJob() end
 	-- change functions to the last state
-	swapFunctions(lastSwapState)
+	mappedArea.swapFunctions(lastSwapState)
 end
 
 -- returns the vector Pos
@@ -526,33 +567,20 @@ function mappedArea.generateMapStrip()
 	end
 end
 
-function swapFunctions(SpecialActivated)
-	if SpecialActivated then
-		-- change color
-		r.setLightColor(colors.Digging)
-		-- change functions
-		pos.selectedForward = mappedArea.SpecialForward
-		pos.selectedUp = mappedArea.SpecialdUp
-		pos.selectedDown = mappedArea.SpecialDown
-		-- change state
-		mappedArea.swappedFunctions = true
-	else
-		-- change color
-		r.setLightColor(colors.walking)
-		-- change functions
-		pos.selectedForward = mappedArea.DefaultForward
-		pos.selectedUp = mappedArea.DefaultdUp
-		pos.selectedDown = mappedArea.DefaultDown
-		-- change state
-		mappedArea.swappedFunctions = false
-	end
+function mappedArea.goToMainLine(i)
+	-- disable special digging because it goes back
+	mappedArea.swapFunctions(false)
+	-- go back to the main line
+	pos.goTo(facing,mappedArea.map[i].Pos)
+	-- continue with special functions
+	mappedArea.swapFunctions(true)
 end
 
 function mappedArea.executeJobStrip()
 	for i=mappedArea.startStrippingAt, mappedArea.strips do
 		-- swap into special movement
-		swapFunctions(true)
-		-- go the main path strip by strip
+		mappedArea.swapFunctions(true)
+		-- go the main path strip by strip (it visits a new strip so it digs)
 		pos.goTo(facing,mappedArea.map[i].Pos)
 		-- set the current stage
 		mappedArea.startStrippingAt = i -- nice if you want to resume the job or smth
@@ -561,17 +589,20 @@ function mappedArea.executeJobStrip()
 		if mappedArea.startLeft then
 			-- go left
 			pos.goTo(facing,mappedArea.map[i].LeftPos)
+			-- go back to the main line
+			mappedArea.goToMainLine(i)
 			-- go right
 			pos.goTo(facing,mappedArea.map[i].RightPos)
 		else
 			-- go right
 			pos.goTo(facing,mappedArea.map[i].RightPos)
+			-- go back to the main line
+			mappedArea.goToMainLine(i)
 			-- go left
 			pos.goTo(facing,mappedArea.map[i].LeftPos)
 		end
 		-- go back to the main line
-		swapFunctions(false)
-		pos.goTo(facing,mappedArea.map[i].Pos)
+		mappedArea.goToMainLine(i)
 		-- save the current strip number
 		--mappedArea.startStrippingAt = i -- nice if you want to resume the job or smth
 	end
@@ -579,7 +610,7 @@ end
 
 
 
-function printMap(map)
+local function printMap(map)
 	for i,content in pairs(map) do
 		print(i.." "..tostring(content.Pos).." "..tostring(content.LeftPos).." "..tostring(content.RightPos))
 		os.sleep(1)
