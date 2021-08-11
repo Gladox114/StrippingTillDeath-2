@@ -140,8 +140,7 @@ function dryTurn.left(facing) return dryTurn.main(facing,-1) end
 function dryTurn.right(facing) return dryTurn.main(facing,1) end
 function dryTurn.turn(facing) return dryTurn.main(facing,2) end
 
-local dryMove = {
---						    x,y,z
+local dryMove = {    --    x,y,z
 	function(i) return new(-i,0,0) end, -- -x
 	function(i) return new(0,0,-i) end, -- -z
 	function(i) return new(i,0,0) end,  -- +x

@@ -19,6 +19,7 @@ under mappedArea:
 * startLeft (bool)
 * depositChest (vector3 location)
 * depositChestFacing (in which direction to face for the chest)
+* energy (vector3 location)
 
 ### you can also resume your job with these variables:
 
@@ -26,6 +27,17 @@ under mappedArea:
 * startStrippingAt (number of the strips it made to resume there)
 * lastPosition
 * lastFacing
+
+
+
+### change colors for each task
+under colors:
+* GoingToChest
+* Digging
+* walking
+* GoingToRecharge
+* obsticle
+
 
 For digging it uses dynamic functions meaning that
 you can create custom functions that check for something specific each move
