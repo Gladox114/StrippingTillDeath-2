@@ -3,7 +3,7 @@ StrippingTillDeath 2 is written out of scratch for OpenComputers but uses a simi
 
 ## What can it do?
 
-It Stripmines custom strips. Meaning that you can change length in any direction. You can also change positions dynamically and hard positions.
+It Stripmines custom strips. Meaning that you can change the length in any direction and amount of strips. You can also change positions dynamically and hard positions.
 
 Dynamic positions are offset positions from the robot itself. Right now the chest is left of the Robot and the strip is infront of the Robot but this can be changed regardless of the Robots position and direction. It's then a Hard position. It can be used with a Navigation Map or by manually typing in the real world/custom positions and facing direction.
 
