@@ -1,8 +1,10 @@
 --------- initialise requirements --------
 local component = require("component")
+local computer = require("computer")
 local navi = nil
 local r = nil
 local inv = nil
+local serial=require("serialization")
 --[[
 -- check if the setting is right --
 if not component.list("navigation")() then
@@ -59,7 +61,7 @@ function vector:set(x,y,z)
 	self.x, self.y, self.z = x or self.x, y or self.y, z or self.z
 	return self
 end
-function vector:abs() return {abs(self.x),abs(self.y),abs(self.z)} end
+function vector:abs() return new(abs(self.x),abs(self.y),abs(self.z)) end
 -- meta function to add vectors together
 function vector.__add(a,b) return new(a.x+b.x, a.y+b.y, a.z+b.z) end
 -- meta function to subtract vectors
@@ -126,6 +128,10 @@ powerConfig.up = 15.0
 powerConfig.down = 15.0
 powerConfig.dig = 0.35687499888081 -- unnecessary
 powerConfig.minimum = 200.0
+-- how often to check if the energy is full while recharging
+powerConfig.updateInterval = 2
+-- when recharging, your battery can't get 100% charged. Mostly a 0.6 charge can be remaining for the 100% that you will never achieve
+powerConfig.rechargeTolerance = 3
 ---------- pre calculating facing directions and movement -----------
 local dryTurn = {}
 -- with modulo % we can get the exact direction but we need to first subtract 1 and add 1 at the end to match the mapping
@@ -290,49 +296,6 @@ function move.specialDigging() dig.swingUp() dig.swing() end
 function move.specialDigging2() dig.swingUp() end
 function move.humanTunnel(num) num = num or 1 move.move("forward",num,move.specialDigging,move.specialDigging2) curLocation = curLocation + dryMove[facing](num) end
 
--------- Pre calculate energy consumption ---------
-
-local energy = {}
--- add all vector positions with x and z together
--- add all y together
--- multiply powerConfig.forward with the sum of all vectors of x and z
--- multply powerConfig.up with the sum of all vectors of y
--- add them all together and compare them to the current energy state if it's possible to go home or to the destination
-
-function energy.sumOfAllVectors(vecList)
-	local vecSum = new()
-	-- add all vectors together
-	for _,vec in pairs(vecList) do vecSum = vecSum + vec:abs() end
-	vecSum = vecSum:array()
-	-- calculate the power Consumption for horizontal moves
-	local energyConsumption = (vecSum[1]+vecSum[3]) * powerConfig.forward
-	-- calculate and add the power Consumption for vertical moves
-	energyConsumption = energyConsumption + vecSum[2] * powerConfig.up
-
-	return energyConsumption
-end
-
-function energy.hitsMinimum(energyToGoHome)
-	if energyToGoHome > powerConfig.minimum then
-		return false
-	end
-	return true
-end
-
-function energy.calcReturnToJob()
-	
-end
-
-function energy.calcToHome()
-	local vecList = {}
-	-- going to the main path
-	vecList[1] = mappedArea.currentStage - curLocation
-	-- going to the startPosition
-	vecList[2] = mappedArea.map[0].Pos - curLocation
-	-- return if it's needed to recharge
-	return energy.hitsMinimum( energy.sumOfAllVectors(vecList) )
-end
-
 ---------- Going to Position Functions ------------
 
 local pos = {}
@@ -344,10 +307,10 @@ pos.selectedDown = move.down
 -- facingDir prescribes which direction x or y to go first.
 
 function pos.goToX(num)
-	if num < 0 then -- if negative
+	if num < 0 then -- if negative walk in -X
 		move.turnTo(1)
 		pos.selectedForward(num*-1) -- the dryMove already uses negative so make it positive to prevent having a wrong number at the end
-	elseif num > 0 then -- if positive
+	elseif num > 0 then -- if positive walk in X
 		move.turnTo(3)
 		pos.selectedForward(num)
 	end
@@ -364,14 +327,14 @@ function pos.goToZ(num)
 end
 
 function pos.goToY(num)
-	if num < 0 then
+	if num < 0 then -- if negative walk Down
 		pos.selectedDown(num*-1)
-	elseif num > 0 then
+	elseif num > 0 then -- if Positive walk Up
 		pos.selectedUp(num)
 	end
 end
 
-
+-- uses all the three above functions to walk to a 3D vector position
 function pos.goTo(facingDir,vectorPos)
 	curTarget = vectorPos --used for resuming
 	local deltaDir = (vectorPos-curLocation):array()
@@ -411,12 +374,12 @@ local mappedArea = {}
 -- distance between strip mines
 mappedArea.stripDistance = 3
 -- distance into the left and right strip
-mappedArea.stripDistLeft = 10
-mappedArea.stripDistRight = 10
+mappedArea.stripDistLeft = 2
+mappedArea.stripDistRight = 2
 -- how many strips to go
 mappedArea.strips = 100
 -- location of the chest
-mappedArea.depositChest = curLocation + dryMove[ dryTurn.left(facing) ](2) -- default it to the left of the start position
+mappedArea.depositChest = curLocation + dryMove[ dryTurn.left(facing) ](2) -- default it 2 to the left of the start position
 mappedArea.depositChestFacing = dryTurn.left(facing)
 -- default it to the left and behind of the start pos
 mappedArea.energy = curLocation + dryMove[ dryTurn.left(facing) ](2) + dryMove[ dryTurn.turn(facing) ](2) -- move 2 to the left and 2 behind
@@ -456,30 +419,47 @@ function mappedArea.goToCachedPosition()
 	move.turnTo( mappedArea.lastFacing )
 end
 
-function mappedArea.goToChest()
-	-- change color
-	r.setLightColor(colors.GoingToChest)
+-- used while strip mining
+function mappedArea.goToStartPosition()
 	-- go to the main path
 	mappedArea.goToMainPath(facing)
 	-- then go to the start Position
 	pos.goTo(facing, mappedArea.map[0].Pos)
-	-- set the current stage
+	-- set the current stage to start Position
 	mappedArea.currentStage = 0
+end
+
+function mappedArea.goToChest()
+	-- change color
+	r.setLightColor(colors.GoingToChest)
+	-- go to the start Position
+	mappedArea.goToStartPosition()
 	-- then go to the chest
 	pos.goTo(facing, mappedArea.map[0].Chest)
 	-- turn to the chest
 	move.turnTo( mappedArea.depositChestFacing )
 end
 
+function mappedArea.goToEnergy()
+	-- change color
+	r.setLightColor(colors.GoingToRecharge)
+	-- go to the start Position
+	mappedArea.goToStartPosition()
+	-- then go to the Energy spot
+	pos.goTo(facing, mappedArea.map[0].Energy)
+end
+
 function mappedArea.returnToJob()
 	-- change color
-	r.setLightColor(colors.Digging)
+	r.setLightColor(colors.walking)
 	-- go the main path
 	mappedArea.goToMainPath(facing)
 	-- go to the last layer main-pos
 	pos.goTo(facing, mappedArea.map[ mappedArea.startStrippingAt ].Pos)
 	-- set the current stage
 	mappedArea.currentStage = mappedArea.startStrippingAt
+	-- change colors
+	r.setLightColor(colors.Digging)
 	-- go to the last-position and face to last-facing
 	mappedArea.goToCachedPosition()
 end
@@ -507,11 +487,13 @@ function mappedArea.swapFunctions(SpecialActivated)
 end
 
 -- function that tries to go back at home to empty itself
-invLib.goEmptyYourself = function(DoNotreturnToJob)
-	-- while on the job, save the last position and facing from the job
-	mappedArea.cachePosition()
-	-- save last swapFunction state
-	local lastSwapState = mappedArea.swappedFunctions
+invLib.goEmptyYourself = function(DoNotreturnToJob,DoNotCache)
+	if not DoNotCache then
+		-- while on the job, save the last position and facing from the job
+		mappedArea.cachePosition()
+		-- save last swapFunction state
+		local lastSwapState = mappedArea.swappedFunctions
+	end
 	-- disable special functions
 	mappedArea.swapFunctions(false)
 	-- go to the chest and face to it
@@ -521,7 +503,7 @@ invLib.goEmptyYourself = function(DoNotreturnToJob)
 	-- go back to the job
 	if not DoNotreturnToJob then mappedArea.returnToJob() end
 	-- change functions to the last state
-	mappedArea.swapFunctions(lastSwapState)
+	if not DoNotCache then mappedArea.swapFunctions(lastSwapState) end
 end
 
 -- returns the vector Pos
@@ -542,6 +524,86 @@ function mappedArea.getEnergy()
 	end
 end
 
+-------- Pre calculate energy consumption ---------
+
+local energy = {}
+-- add all vector positions with x and z together
+-- add all y together
+-- multiply powerConfig.forward with the sum of all vectors of x and z
+-- multply powerConfig.up with the sum of all vectors of y
+-- add them all together and compare them to the current energy state if it's possible to go home or to the destination
+
+function energy.sumOfAllVectors(vecList)
+	local vecSum = new(0,0,0)
+	-- add all vectors together
+	for _,vec in pairs(vecList) do vecSum = vecSum + vec:abs() end
+	-- convert the vector into an Array/Table
+	vecSum = vecSum:array()
+	-- calculate the power Consumption for horizontal moves
+	local energyConsumption = (vecSum[1]+vecSum[3]) * powerConfig.forward
+	-- calculate and add the power Consumption for vertical moves
+	energyConsumption = energyConsumption + vecSum[2] * powerConfig.up
+
+	return energyConsumption
+end
+
+function energy.hitsMinimum(energyToGoHome)
+	print("energyToGoHome:"..energyToGoHome)
+	print("energy:".. computer.energy())
+	print("remaining:"..computer.energy() - energyToGoHome)
+	if (computer.energy() - energyToGoHome) > powerConfig.minimum then
+		return false
+	end
+	return true
+end
+
+-- used to predict if it's even worth to go back
+function energy.calcReturnToJob()
+	
+end
+-- used to know when your remaining energy is really close to die if returning to home
+function energy.calcToHome()
+	local vecList = {}
+	-- going to the main path
+	vecList[1] = mappedArea.map[ mappedArea.currentStage ].Pos - curLocation
+	-- going to the startPosition from the main path
+	vecList[2] = mappedArea.map[0].Pos - mappedArea.map[ mappedArea.currentStage ].Pos
+	-- going to the energy from the startPosition
+	vecList[3] = mappedArea.map[0].Energy - mappedArea.map[0].Pos
+	-- for debugging
+	for i,v in pairs(vecList) do
+		file = io.open("calcToHome.log","w")
+		file:write(serial.serialize(vecList))
+		file:close()
+	end
+	-- return if it's below it's minimum Energy mark
+	return energy.hitsMinimum( energy.sumOfAllVectors(vecList) )
+end
+
+function energy.isRecharged()
+	local chargeRemaining = computer.maxEnergy() - computer.energy()
+	-- it's charged when the remaining charge is below the tolerance
+	if chargeRemaining < powerConfig.rechargeTolerance then
+		return true
+	end
+	print("Charge Remaining: "..chargeRemaining)
+	return false
+end
+
+function energy.recharge()
+	-- save the current Position
+	mappedArea.cachePosition()
+	-- go to the energy spot
+	mappedArea.goToEnergy()
+	-- wait till it's recharged
+	print("Recharging...")
+	while not energy.isRecharged() do
+		os.sleep(powerConfig.updateInterval)
+	end
+	print("Done Recharging")
+end
+
+-------- generate map Functions ---------
 
 function mappedArea.generateMapStrip()
 	local startPosition = curLocation
@@ -603,6 +665,12 @@ function mappedArea.executeJobStrip()
 		end
 		-- go back to the main line
 		mappedArea.goToMainLine(i)
+		-- check if it has enough Power to go back at home
+		if energy.calcToHome() then
+			energy.recharge()
+			invLib.goEmptyYourself(true,true)
+			
+		end
 		-- save the current strip number
 		--mappedArea.startStrippingAt = i -- nice if you want to resume the job or smth
 	end
@@ -621,6 +689,7 @@ mappedArea.generateMapStrip()
 mappedArea.executeJobStrip()
 invLib.goEmptyYourself(true)
 pos.goTo( facing, mappedArea.map[0].Pos )
+
 
 --print(curLocation)
 --print(dryMove[2](-5))
