@@ -536,18 +536,7 @@ local energy = {}
 function energy.sumOfAllVectors(vecList)
 	local vecSum = new(0,0,0)
 	-- add all vectors together
-	file=io.open("calcToHome.log","a")
-	file:write("\n\n")
-	for _,vec in pairs(vecList) do
-		file:write(serial.serialize(vec))
-		file:write("\nabs:")
-		file:write(serial.serialize(vec:abs()))
-		file:write("\n")
-		file:write("adding it to this:")
-		file:write(serial.serialize(vecSum))
-		vecSum = vecSum + vec:abs()
-	end
-	file:close()
+	for _,vec in pairs(vecList) do vecSum = vecSum + vec:abs() end
 	-- convert the vector into an Array/Table
 	vecSum = vecSum:array()
 	-- calculate the power Consumption for horizontal moves
