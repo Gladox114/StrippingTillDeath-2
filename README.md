@@ -1,8 +1,13 @@
 # StrippingTillDeath-2
 StrippingTillDeath 2 is written out of scratch for OpenComputers but uses a similiar logic like in StrippingTillDeath
 
-(new) It can now go to the Chest position and saved facing direction when the Inventory is full
+## What can it do?
 
+It Stripmines custom strips. Meaning that you can change length in any direction. You can also change positions dynamically and hard positions.
+
+Dynamic positions are offset positions from the robot itself. Right now the chest is left of the Robot and the strip is infront of the Robot but this can be changed regardless of the Robots position and direction. It's then a Hard position. It can be used with a Navigation Map or by manually typing in the real world/custom positions and facing direction.
+
+If the Robot is full it will empty itself and if it barely manages to go home it will notice that and recharge itself. On every strip it calculates the energy consumption to go Home.
 
 ### There are config variables that you can change:
 
